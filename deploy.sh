@@ -22,4 +22,4 @@ sudo rm -rf ~/chef &&
 mkdir ~/chef &&
 cd ~/chef &&
 tar xj &&
-sudo bash install.sh'
+sudo bash install.sh' ${recipe}
