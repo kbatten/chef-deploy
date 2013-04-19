@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# ./chef-deploy ubuntu@identifi.es ~/src/identifies identifies default
+
+if [[ -z ${3} ]] ; then
+    echo "chef-deploy <host> <recipedir> <recipe>"
+    exit 1
+fi
+
+host=${1}
+recipedir=${2}
+recipe=${3}
+
+TMPDIR=$(mktemp -d)
+pushd ${TMPDIR} &> /dev/null
+echo '{
+    "run_list": [ "recipe['${recipe}'::default]" ]
+}' > solo.json
+
+echo 'root = File.absolute_path(File.dirname(__FILE__))
+file_cache_path root
+cookbook_path root + "/cookbooks"' > solo.rb
+mkdir cookbooks
+ln -s ${recipedir} cookbooks/
+
+
+echo '#!/bin/bash
+# This runs as root on the server
+chef_binary=/var/lib/gems/1.9.1/gems/chef-11.4.0/bin/chef-solo
+
+# Are we on a vanilla system?
+if ! test -f "${chef_binary}"; then
+    export DEBIAN_FRONTEND=noninteractive
+    # Upgrade headlessly (this is only safe-ish on vanilla systems)
+    aptitude update &&
+    apt-get -o Dpkg::Options::="--force-confnew" \
+        --force-yes -fuy dist-upgrade &&
+    # Install Ruby and Chef
+    aptitude install -y ruby1.9.1 ruby1.9.1-dev make &&
+    sudo gem1.9.1 install --no-rdoc --no-ri chef --version 11.4.0
+    sudo gem1.9.1 install --no-rdoc --no-ri berkshelf
+fi &&
+
+recipe=${1}
+if [[ -n ${recipe} ]] ; then
+    pushd cookbooks/${recipe}
+    berks install
+    popd
+    for cookbook_v in $(ls ~/.berkshelf/cookbooks/) ; do
+        cookbook=$(echo ${cookbook_v} | sed "s/-[^-]*$//")
+        ln -s ~/.berkshelf/cookbooks/${cookbook_v} cookbooks/${cookbook}
+    done
+fi
+
+"${chef_binary}" -c $(pwd)/solo.rb -j $(pwd)/solo.json' > install.sh
+
+# transfer files to host and start installer
+tar hcj . | ssh "${host}" '
+sudo rm -rf ~/chef &&
+mkdir ~/chef &&
+cd ~/chef &&
+tar xj &&
+sudo bash install.sh' ${recipe}
+
+
+popd
+rm -rf ${TMPDIR}
